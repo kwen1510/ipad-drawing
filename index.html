@@ -34,13 +34,12 @@
 <script>
 (() => {
   const canvas = document.getElementById('c');
-  const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true }); // desync for smoother iPad drawing
-  const DPR = Math.max(1, Math.min(3, window.devicePixelRatio || 1)); // cap DPR to keep perf great
+  const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+  const DPR = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
   let points = [];
   let drawing = false;
   let rafId = null;
 
-  // Style
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.strokeStyle = '#f8f8f8';
@@ -49,22 +48,17 @@
     const { width, height } = canvas.getBoundingClientRect();
     canvas.width = Math.round(width * DPR);
     canvas.height = Math.round(height * DPR);
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0); // draw in CSS pixels
-    // (Optional) fill background solid to avoid transparency
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ctx.fillStyle = '#111';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.strokeStyle = '#f8f8f8';
   }
-
-  // Keep canvas pixel-perfect on orientation/resize
   const ro = new ResizeObserver(resize);
   ro.observe(canvas);
 
-  // Utility: get midpoint between two points
   const mid = (p1, p2) => ({ x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 });
 
   function addPoint(x, y, pressure = 0.5) {
-    // Clamp pressure to avoid spikes; also bias a bit for nicer look
     const p = Math.max(0.1, Math.min(1, pressure || 0.5));
     points.push({ x, y, p });
   }
@@ -73,7 +67,6 @@
     rafId = null;
     if (points.length === 0) return;
 
-    // Base size tuned for iPad—feel free to tweak
     const base = 2.2;
 
     if (points.length === 1) {
@@ -81,12 +74,11 @@
       ctx.beginPath();
       ctx.lineWidth = base * a.p * 2;
       ctx.moveTo(a.x, a.y);
-      ctx.lineTo(a.x + 0.01, a.y + 0.01); // tiny segment to render a dot
+      ctx.lineTo(a.x + 0.01, a.y + 0.01);
       ctx.stroke();
       return;
     }
 
-    // Quadratic curve smoothing with midpoints
     ctx.beginPath();
     let a = points[0];
     ctx.moveTo(a.x, a.y);
@@ -94,19 +86,13 @@
     for (let i = 1; i < points.length; i++) {
       const b = points[i];
       const m = mid(a, b);
-
-      // Interpolate width between a.p and b.p
       const pw = base * ((a.p + b.p) * 0.5 + 0.05);
-
-      // Stroke segment a -> m using control point a
       ctx.lineWidth = pw;
       ctx.quadraticCurveTo(a.x, a.y, m.x, m.y);
       a = b;
     }
-
     ctx.stroke();
-    // Keep last two points for continuity
-    points = points.slice(-2);
+    points = points.slice(-2); // keep short memory for smoothness
   }
 
   function scheduleDraw() {
@@ -114,22 +100,26 @@
   }
 
   function pointerDown(e) {
-    // Pencil-only: ignore finger touches to get palm rejection
     if (e.pointerType !== 'pen' && e.pointerType !== 'mouse') return;
-
     drawing = true;
     canvas.setPointerCapture(e.pointerId);
 
+    // clear old stroke
+    points.length = 0;
+    ctx.beginPath();
+
     const rect = canvas.getBoundingClientRect();
-    addPoint(e.clientX - rect.left, e.clientY - rect.top, e.pressure);
-    addPoint(e.clientX - rect.left, e.clientY - rect.top, e.pressure);
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    addPoint(x, y, e.pressure);
+    addPoint(x, y, e.pressure);
     scheduleDraw();
   }
 
   function pointerMove(e) {
     if (!drawing) return;
     if (e.pointerType !== 'pen' && e.pointerType !== 'mouse') return;
-
     const rect = canvas.getBoundingClientRect();
     addPoint(e.clientX - rect.left, e.clientY - rect.top, e.pressure);
     scheduleDraw();
@@ -138,23 +128,19 @@
   function pointerUp(e) {
     if (e.pointerType !== 'pen' && e.pointerType !== 'mouse') return;
     drawing = false;
-    scheduleDraw();
+    points.length = 0; // clear after stroke ends
   }
 
-  // Prevent gestures/scroll while drawing
   function prevent(e) { e.preventDefault(); }
 
-  // Events
   canvas.addEventListener('pointerdown', pointerDown, { passive: false });
   canvas.addEventListener('pointermove', pointerMove, { passive: false });
   window.addEventListener('pointerup', pointerUp, { passive: false });
 
-  // Stop Safari scrolling/zoom while interacting
   canvas.addEventListener('touchstart', prevent, { passive: false });
   canvas.addEventListener('touchmove', prevent, { passive: false });
   canvas.addEventListener('gesturestart', prevent, { passive: false });
 
-  // Clear
   document.getElementById('clearBtn').addEventListener('click', () => {
     ctx.fillStyle = '#111';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -162,12 +148,7 @@
     points = [];
   });
 
-  // Initial layout
-  // Make the canvas fill the content area below the header.
   function sizeToViewport() {
-    const wrap = document.getElementById('wrap');
-    const rect = wrap.getBoundingClientRect();
-    // The canvas CSS size is controlled by CSS; just trigger a resize to sync pixels.
     resize();
   }
   window.addEventListener('orientationchange', () => setTimeout(sizeToViewport, 100));
