@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Handwriting Practice Pad</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: #fff;
+  }
+  .toolbar {
+    position: fixed;
+    top: env(safe-area-inset-top);
+    left: 0; right: 0;
+    display: flex;
+    gap: .5rem;
+    align-items: center;
+    padding: .5rem env(safe-area-inset-right) .5rem env(safe-area-inset-left);
+    background: rgba(250,250,250,.9);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid #ddd;
+    z-index: 10;
+  }
+  .toolbar > * { font-size: 16px; }
+  .spacer { flex: 1; }
+  button, label {
+    padding: .45rem .75rem;
+    border: 1px solid #ccc;
+    border-radius: .6rem;
+    background: #fff;
+  }
+  input[type="checkbox"]{ transform: scale(1.1); vertical-align: middle; margin-right: .35rem; }
+  #pad {
+    display: block;
+    touch-action: none;      /* important for Apple Pencil drawing */
+    width: 100vw;
+    height: calc(100dvh - 64px - env(safe-area-inset-bottom));
+    margin-top: 64px;        /* space for toolbar */
+    background: #ffffff;
+    cursor: crosshair;
+  }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <label><input id="practiceToggle" type="checkbox" checked> Chinese practice box</label>
+    <label><input id="stylusToggle" type="checkbox" checked> Stylus only</label>
+    <div class="spacer"></div>
+    <label>Pen size <input id="size" type="range" min="1" max="12" step="1" value="4"></label>
+    <button id="clearBtn">Clear</button>
+  </div>
+
+  <canvas id="pad"></canvas>
+
+<script>
+(() => {
+  const canvas = document.getElementById('pad');
+  const ctx = canvas.getContext('2d', { alpha: true, desynchronized: true });
+
+  const practiceToggle = document.getElementById('practiceToggle');
+  const stylusToggle = document.getElementById('stylusToggle');
+  const sizeSlider = document.getElementById('size');
+  const clearBtn = document.getElementById('clearBtn');
+
+  let drawing = false;
+  let last = null;
+
+  // Fit canvas to device pixels
+  function resizeCanvas() {
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const cssW = canvas.clientWidth;
+    const cssH = canvas.clientHeight;
+    if (canvas.width !== Math.floor(cssW * dpr) || canvas.height !== Math.floor(cssH * dpr)) {
+      canvas.width = Math.floor(cssW * dpr);
+      canvas.height = Math.floor(cssH * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // scale drawing ops to CSS pixels
+      drawBackground();
+    }
+  }
+
+  function drawBackground() {
+    // clear only the background (not strokes)
+    // we keep everything in one layer, so we redraw grid then trace strokes on top
+    // simplest approach: wipe and redraw (fast enough for this use)
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // background color
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    if (!practiceToggle.checked) return;
+
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    const margin = Math.min(w, h) * 0.08; // padding around the box
+    const size = Math.min(w, h) - margin * 2;
+    const x = (w - size) / 2;
+    const y = (h - size) / 2;
+
+    // box border
+    ctx.save();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(103, 148, 80, 0.8)'; // green border
+    ctx.beginPath();
+    ctx.rect(x, y, size, size);
+    ctx.stroke();
+
+    // dotted center lines (no diagonals)
+    ctx.setLineDash([6, 8]);
+    ctx.lineWidth = 1.25;
+    ctx.strokeStyle = 'rgba(103, 148, 80, 0.35)';
+
+    // vertical
+    ctx.beginPath();
+    ctx.moveTo(x + size / 2, y);
+    ctx.lineTo(x + size / 2, y + size);
+    ctx.stroke();
+
+    // horizontal
+    ctx.beginPath();
+    ctx.moveTo(x, y + size / 2);
+    ctx.lineTo(x + size, y + size / 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function shouldAcceptPointer(e) {
+    if (stylusToggle.checked) return e.pointerType === 'pen';
+    // allow pen + touch; still ignore mouse drags to avoid accidental lines
+    return e.pointerType === 'pen' || e.pointerType === 'touch';
+  }
+
+  function pointerDown(e) {
+    if (!shouldAcceptPointer(e)) return;
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
+    drawing = true;
+    last = { x: e.offsetX, y: e.offsetY, p: e.pressure || 0.5 };
+
+    ctx.beginPath();                // ensure strokes don’t connect between paths
+    ctx.moveTo(last.x, last.y);
+  }
+
+  function pointerMove(e) {
+    if (!drawing || !shouldAcceptPointer(e)) return;
+    e.preventDefault();
+
+    const x = e.offsetX, y = e.offsetY;
+    const p = e.pressure || 0.5;
+
+    // pressure-aware width
+    const base = parseFloat(sizeSlider.value);
+    const width = Math.max(0.5, base * (0.6 + p)); // gentle scaling
+
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#111';       // ink color
+    ctx.lineWidth = width;
+
+    // simple smoothing with quadratic curve
+    const midX = (last.x + x) / 2;
+    const midY = (last.y + y) / 2;
+    ctx.quadraticCurveTo(last.x, last.y, midX, midY);
+    ctx.stroke();
+
+    last = { x, y, p };
+  }
+
+  function pointerUp(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    drawing = false;
+    last = null;
+  }
+
+  // Redraw grid on resize/orientation change
+  window.addEventListener('resize', resizeCanvas, { passive: true });
+  window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 50), { passive: true });
+
+  // Toggle background/stylus
+  practiceToggle.addEventListener('change', drawBackground);
+  stylusToggle.addEventListener('change', () => { /* no-op */ });
+
+  // Clear button: clears strokes and redraws background
+  clearBtn.addEventListener('click', () => drawBackground());
+
+  // Pointer events
+  canvas.addEventListener('pointerdown', pointerDown);
+  canvas.addEventListener('pointermove', pointerMove);
+  canvas.addEventListener('pointerup', pointerUp);
+  canvas.addEventListener('pointercancel', pointerUp);
+  canvas.addEventListener('pointerout', pointerUp);
+  canvas.addEventListener('pointerleave', pointerUp);
+
+  // Initialize
+  resizeCanvas();
+})();
+</script>
+</body>
+</html>
